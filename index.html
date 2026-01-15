@@ -105,7 +105,6 @@
 
     <!-- Babel Standalone -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- REMOVED STATIC IMPORT MAP TO AVOID CONFLICT -->
 <script type="importmap">
 {
   "imports": {
@@ -128,10 +127,10 @@
     <div id="root"></div>
 
     <!-- 
-      CUSTOM MODULE LOADER v3 (Fixes Import Map Conflicts)
-      1. Defines exact mappings for React 18.
-      2. Rewrites relative imports to match mapped keys.
-      3. Injects ONE single importmap at runtime.
+      CUSTOM MODULE LOADER v4
+      - Removes conflicting static import maps
+      - Standardizes on React 18.2.0
+      - Handles virtual path rewriting for Blob URLs
     -->
     <script>
       (async function() {
@@ -157,18 +156,18 @@
           imports: {
             "react": "https://esm.sh/react@18.2.0",
             "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-            // Shim for direct react-dom import if needed
             "react-dom": "https://esm.sh/react-dom@18.2.0" 
           }
         };
 
         // Helper to rewrite imports in source code
+        // e.g. "import Sidebar from './components/Sidebar'" -> "import Sidebar from 'components/Sidebar'"
         const rewriteImports = (sourceCode) => {
             return sourceCode.replace(/from\s+['"]([^'"]+)['"]/g, (match, path) => {
-                // Ignore libraries (react, react-dom)
+                // Ignore external libraries
                 if (!path.startsWith('.')) return match;
                 
-                // Heuristic mapping: ./components/Sidebar -> components/Sidebar
+                // Resolver logic
                 if (path.includes('Sidebar')) return `from 'components/Sidebar'`;
                 if (path.includes('ChatView')) return `from 'components/ChatView'`;
                 if (path.includes('ManagementView')) return `from 'components/ManagementView'`;
@@ -184,25 +183,25 @@
           updateStatus("Fetching source modules...");
           
           const promises = Object.entries(modules).map(async ([moduleId, url]) => {
-            // Fetch
+            // Fetch source
             const response = await fetch(url + '?t=' + Date.now());
             if (!response.ok) throw new Error(`Failed to load ${url}`);
             let rawCode = await response.text();
 
-            // REWRITE IMPORTS
+            // REWRITE IMPORTS (Crucial step for Blob URL environments)
             const processedCode = rewriteImports(rawCode);
 
-            // Compile
+            // Compile with Babel
             const result = Babel.transform(processedCode, {
               presets: ['react', 'typescript'],
               filename: url,
             });
 
-            // Blob
+            // Create Blob URL
             const blob = new Blob([result.code], { type: 'application/javascript' });
             const blobUrl = URL.createObjectURL(blob);
 
-            // Register in Map
+            // Register in Import Map
             importMap.imports[moduleId] = blobUrl;
           });
 
@@ -217,32 +216,26 @@
 
           updateStatus("Starting Application...");
 
-          // Wait a tick for the map to settle
-          await new Promise(r => setTimeout(r, 10));
+          // Small delay to ensure map is registered
+          await new Promise(r => setTimeout(r, 50));
 
           // Import Entry Point
           await import(importMap.imports['index']);
 
+          // Remove Loader
           setTimeout(() => {
             const loader = document.getElementById('app-loader');
             if(loader) {
               loader.style.opacity = '0';
               setTimeout(() => loader.remove(), 500);
             }
-          }, 200);
+          }, 300);
 
         } catch (err) {
           console.error("Loader Error:", err);
           updateStatus("Error: " + err.message);
           const statusEl = document.getElementById('loader-status');
           if(statusEl) statusEl.style.color = '#DB3E4E';
-          
-          // Debugging help
-          const debugInfo = document.createElement('pre');
-          debugInfo.style.color = 'red';
-          debugInfo.style.padding = '20px';
-          debugInfo.textContent = err.stack || err.message;
-          document.body.appendChild(debugInfo);
         }
       })();
     </script>
