@@ -127,10 +127,11 @@
     <div id="root"></div>
 
     <!-- 
-      CUSTOM MODULE LOADER v5.3 (FIXED)
+      CUSTOM MODULE LOADER v5.4
       - Added File Protocol Check
       - Enhanced Error Reporting
-      - Removed Static Import Map (Verified)
+      - Removed Static Import Map
+      - Improved Import Rewriting Regex
     -->
     <script>
       (async function() {
@@ -171,15 +172,26 @@
           }
         };
 
+        // Improved rewrite logic: Maps relative paths to the registered Module keys
         const rewriteImports = (sourceCode) => {
             return sourceCode.replace(/from\s+['"]([^'"]+)['"]/g, (match, path) => {
-                if (!path.startsWith('.')) return match;
-                if (path.includes('Sidebar')) return `from 'components/Sidebar'`;
-                if (path.includes('ChatView')) return `from 'components/ChatView'`;
-                if (path.includes('ManagementView')) return `from 'components/ManagementView'`;
-                if (path.includes('SettingsView')) return `from 'components/SettingsView'`;
-                if (path.includes('types')) return `from 'types'`;
-                if (path.includes('App')) return `from 'App'`;
+                // If it's a relative path, try to normalize it to our module keys
+                if (path.startsWith('.')) {
+                    // Normalize ./components/Sidebar -> components/Sidebar
+                    let normalized = path.replace(/^\.\//, '');
+                    
+                    // Specific fix for App -> ./App import in index.tsx
+                    if (path === './App') return `from 'App'`;
+                    
+                    // Match against our modules keys
+                    // e.g. import ... from './components/Sidebar' -> from 'components/Sidebar'
+                    if (modules[normalized] || Object.keys(modules).some(k => k.includes(normalized))) {
+                        return `from '${normalized}'`;
+                    }
+                    
+                    // Handle 'types' specifically if imported as ./types
+                    if (normalized === 'types') return `from 'types'`;
+                }
                 return match;
             });
         };

@@ -53,19 +53,28 @@ const ChatView: React.FC = () => {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let assistantResponse = '';
+      let buffer = '';
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
+          // Decode current chunk and append to buffer
           const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
+          buffer += chunk;
           
+          // Split by newline to get messages
+          const lines = buffer.split('\n');
+          
+          // The last element might be an incomplete line, keep it in the buffer
+          buffer = lines.pop() || '';
+
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const dataStr = line.replace('data: ', '');
-              if (dataStr.trim() === '[DONE]') continue;
+            const trimmedLine = line.trim();
+            if (trimmedLine.startsWith('data: ')) {
+              const dataStr = trimmedLine.replace('data: ', '');
+              if (dataStr === '[DONE]') continue;
               
               try {
                 const data = JSON.parse(dataStr);
@@ -81,7 +90,9 @@ const ChatView: React.FC = () => {
                   return newMsgs;
                 });
               } catch (e) {
-                console.warn('Error parsing stream chunk', e);
+                // It's possible for a line to be malformed or split in a weird way even after buffering
+                // logging it but not breaking execution
+                console.warn('Skipping malformed chunk:', e);
               }
             }
           }
@@ -89,7 +100,15 @@ const ChatView: React.FC = () => {
       }
     } catch (error) {
       console.error(error);
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Error: Could not connect to the AI Gateway.' }]);
+      setMessages(prev => {
+         const newMsgs = [...prev];
+         const lastMsg = newMsgs[newMsgs.length - 1];
+         // Only replace if we haven't received any content yet or if it was the streaming one
+         if (lastMsg.role === 'assistant' && lastMsg.isStreaming) {
+             lastMsg.content = 'Error: Could not connect to the AI Gateway or connection interrupted.';
+         }
+         return newMsgs;
+      });
     } finally {
       setIsLoading(false);
       setMessages(prev => {
@@ -159,7 +178,7 @@ const ChatView: React.FC = () => {
                                 )}
                             </div>
                             
-                            {/* Visual Footer for Assistant messages (optional aesthetic) */}
+                            {/* Visual Footer for Assistant messages */}
                             {!msg.isStreaming && msg.content && (
                                 <div className="flex gap-2 mt-1">
                                     <button className="text-gray-500 hover:text-white transition-colors" title="Copy">

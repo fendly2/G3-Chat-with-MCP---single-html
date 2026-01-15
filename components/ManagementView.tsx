@@ -1,6 +1,45 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+
+interface ServiceInfo {
+    name: string;
+    status: string;
+    uptime_seconds: number;
+    tools: string[];
+}
 
 const ManagementView: React.FC = () => {
+  const [services, setServices] = useState<ServiceInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+        try {
+            const res = await fetch('/api/mcp/status');
+            if (res.ok) {
+                const data = await res.json();
+                setServices(data.services || []);
+            }
+        } catch (e) {
+            console.error("Failed to fetch service status", e);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    fetchStatus();
+    // Poll every 5 seconds
+    const interval = setInterval(fetchStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatUptime = (seconds: number) => {
+      if (seconds < 60) return `${seconds}s`;
+      const mins = Math.floor(seconds / 60);
+      if (mins < 60) return `${mins}m ${seconds % 60}s`;
+      const hours = Math.floor(mins / 60);
+      return `${hours}h ${mins % 60}m`;
+  };
+
   return (
     <div className="flex flex-col h-full bg-background-dark overflow-hidden">
       {/* Dashboard Header */}
@@ -99,166 +138,92 @@ const ManagementView: React.FC = () => {
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {/* Card 1 - Outlook */}
-                    <div className="flex flex-col bg-[#1c2426] border border-border-dark rounded-xl p-6 hover:border-primary/50 transition-colors shadow-sm hover:shadow-lg hover:shadow-primary/5 group relative">
+                    {/* Render Dynamic Services */}
+                    {services.map((svc, idx) => (
+                         <div key={idx} className="flex flex-col bg-[#1c2426] border border-border-dark rounded-xl p-6 hover:border-primary/50 transition-colors shadow-sm hover:shadow-lg hover:shadow-primary/5 group relative">
+                            <div className="absolute top-6 right-6">
+                                <div className={`h-2 w-2 rounded-full shadow-[0_0_8px_rgba(109,190,49,0.6)] ${svc.status === 'RUNNING' ? 'bg-success animate-pulse' : 'bg-red-500'}`}></div>
+                            </div>
+                            <div className="flex items-start gap-4 mb-4">
+                                <div className="p-3 bg-[#293438] rounded-lg text-orange-400 group-hover:text-orange-300 transition-colors">
+                                    <span className="material-symbols-outlined text-[28px]">schedule</span>
+                                </div>
+                                <div>
+                                    <h4 className="text-white font-bold text-lg leading-tight">{svc.name}</h4>
+                                    <p className="text-[#58656a] text-xs font-mono mt-1">mcp-embedded-module</p>
+                                </div>
+                            </div>
+                            
+                            <div className="flex flex-col gap-2 mb-6">
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-[#9eb1b7]">Status</span>
+                                    <span className={svc.status === 'RUNNING' ? 'text-success font-medium' : 'text-error font-medium'}>{svc.status}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-[#9eb1b7]">Uptime</span>
+                                    <span className="text-white flex items-center gap-1">
+                                        {formatUptime(svc.uptime_seconds)}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-3 mb-6">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-white uppercase tracking-wider">Registered Tools</span>
+                                    <button className="text-xs text-primary hover:text-primary-dark transition-colors flex items-center gap-1">
+                                        JSON Schema <span className="material-symbols-outlined text-[14px]">data_object</span>
+                                    </button>
+                                </div>
+                                <div className="flex flex-col gap-2 bg-[#111617] rounded-lg p-3 border border-[#293438]">
+                                    {svc.tools.map((tool, tIdx) => (
+                                        <div key={tIdx} className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <span className="material-symbols-outlined text-[#9eb1b7] text-[16px]">build</span>
+                                                <span className="text-sm text-gray-300 font-mono">{tool}</span>
+                                            </div>
+                                            <div className="relative inline-flex items-center cursor-pointer scale-75 origin-right">
+                                                <input type="checkbox" defaultChecked className="sr-only peer" />
+                                                <div className="w-9 h-5 bg-[#293438] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="mt-auto pt-4 border-t border-border-dark flex items-center justify-between">
+                                <button className="text-[#9eb1b7] hover:text-white text-sm font-medium flex items-center gap-2 px-3 py-1.5 rounded hover:bg-[#293438] transition-colors">
+                                    <span className="material-symbols-outlined text-[18px]">terminal</span> Logs
+                                </button>
+                                <div className="flex items-center gap-3">
+                                    <button className="text-[#58656a] hover:text-primary transition-colors">
+                                        <span className="material-symbols-outlined">settings</span>
+                                    </button>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" defaultChecked className="sr-only peer" />
+                                        <div className="w-11 h-6 bg-[#293438] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                    
+                    {/* Placeholder Card (Static) */}
+                    <div className="flex flex-col bg-[#1c2426] border border-border-dark rounded-xl p-6 hover:border-primary/50 transition-colors shadow-sm hover:shadow-lg hover:shadow-primary/5 group relative opacity-60 grayscale">
                         <div className="absolute top-6 right-6">
-                            <div className="h-2 w-2 rounded-full bg-success shadow-[0_0_8px_rgba(109,190,49,0.6)] animate-pulse"></div>
+                            <div className="h-2 w-2 rounded-full bg-gray-500"></div>
                         </div>
                         <div className="flex items-start gap-4 mb-4">
-                            <div className="p-3 bg-[#293438] rounded-lg text-blue-400 group-hover:text-blue-300 transition-colors">
+                            <div className="p-3 bg-[#293438] rounded-lg text-blue-400 transition-colors">
                                 <span className="material-symbols-outlined text-[28px]">mail</span>
                             </div>
                             <div>
                                 <h4 className="text-white font-bold text-lg leading-tight">Outlook Service</h4>
-                                <p className="text-[#58656a] text-xs font-mono mt-1">client_agent.py</p>
+                                <p className="text-[#58656a] text-xs font-mono mt-1">Disconnected</p>
                             </div>
                         </div>
-                        
-                        <div className="bg-[#293438]/50 rounded-lg p-2.5 mb-4 border border-[#293438]">
-                            <div className="flex items-center justify-between text-[11px] mb-1">
-                                <span className="text-[#9eb1b7] uppercase tracking-wide">Client IP</span>
-                                <span className="text-white font-mono">192.168.1.104</span>
-                            </div>
-                            <div className="flex items-center justify-between text-[11px]">
-                                <span className="text-[#9eb1b7] uppercase tracking-wide">Socket</span>
-                                <span className="text-primary font-mono truncate max-w-[120px]" title="ws://127.0.0.1:8000/ws/mcp">ws://.../ws/mcp</span>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col gap-2 mb-4 border-b border-border-dark pb-4">
-                            <div className="flex justify-between items-center text-sm">
-                                <span className="text-[#9eb1b7]">Status</span>
-                                <span className="text-success font-medium flex items-center gap-1.5">
-                                    <span className="material-symbols-outlined text-sm">check_circle</span>
-                                    Registered
-                                </span>
-                            </div>
-                             <div className="flex justify-between items-center text-sm">
-                                <span className="text-[#9eb1b7]">Last Sync</span>
-                                <span className="text-white">Just now</span>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col gap-3 mb-6">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-white uppercase tracking-wider">Registered Tools</span>
-                                <button className="text-xs text-primary hover:text-primary-dark transition-colors flex items-center gap-1">
-                                    JSON Schema <span className="material-symbols-outlined text-[14px]">data_object</span>
-                                </button>
-                            </div>
-                            <div className="flex flex-col gap-2 bg-[#111617] rounded-lg p-3 border border-[#293438]">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-[#9eb1b7] text-[16px]">search</span>
-                                        <span className="text-sm text-gray-300 font-mono">search_emails</span>
-                                    </div>
-                                    <div className="relative inline-flex items-center cursor-pointer scale-75 origin-right">
-                                         <input type="checkbox" defaultChecked className="sr-only peer" />
-                                         <div className="w-9 h-5 bg-[#293438] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-[#9eb1b7] text-[16px]">edit_note</span>
-                                        <span className="text-sm text-gray-300 font-mono">send_draft</span>
-                                    </div>
-                                    <div className="relative inline-flex items-center cursor-pointer scale-75 origin-right">
-                                         <input type="checkbox" defaultChecked className="sr-only peer" />
-                                         <div className="w-9 h-5 bg-[#293438] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="mt-auto pt-4 border-t border-border-dark flex items-center justify-between">
-                            <button className="text-[#9eb1b7] hover:text-white text-sm font-medium flex items-center gap-2 px-3 py-1.5 rounded hover:bg-[#293438] transition-colors">
-                                <span className="material-symbols-outlined text-[18px]">terminal</span> Logs
-                            </button>
-                            <div className="flex items-center gap-3">
-                                <button className="text-[#58656a] hover:text-primary transition-colors">
-                                    <span className="material-symbols-outlined">settings</span>
-                                </button>
-                                <label className="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" defaultChecked className="sr-only peer" />
-                                    <div className="w-11 h-6 bg-[#293438] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Card 2 - Time Service (Replaced Web Automation) */}
-                    <div className="flex flex-col bg-[#1c2426] border border-border-dark rounded-xl p-6 hover:border-primary/50 transition-colors shadow-sm hover:shadow-lg hover:shadow-primary/5 group relative">
-                        <div className="absolute top-6 right-6">
-                            <div className="h-2 w-2 rounded-full bg-success shadow-[0_0_8px_rgba(109,190,49,0.6)]"></div>
-                        </div>
-                        <div className="flex items-start gap-4 mb-4">
-                            <div className="p-3 bg-[#293438] rounded-lg text-orange-400 group-hover:text-orange-300 transition-colors">
-                                <span className="material-symbols-outlined text-[28px]">schedule</span>
-                            </div>
-                            <div>
-                                <h4 className="text-white font-bold text-lg leading-tight">Time Service</h4>
-                                <p className="text-[#58656a] text-xs font-mono mt-1">mcp-server-time</p>
-                            </div>
-                        </div>
-                        
-                        <div className="flex flex-col gap-2 mb-6">
-                            <div className="flex justify-between items-center text-sm">
-                                <span className="text-[#9eb1b7]">Status</span>
-                                <span className="text-success font-medium">Active</span>
-                            </div>
-                            <div className="flex justify-between items-center text-sm">
-                                <span className="text-[#9eb1b7]">Uptime</span>
-                                <span className="text-white flex items-center gap-1">
-                                    4d 12h 30m
-                                </span>
-                            </div>
-                        </div>
-
-                         <div className="flex flex-col gap-3 mb-6">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-white uppercase tracking-wider">Registered Tools</span>
-                                <button className="text-xs text-primary hover:text-primary-dark transition-colors flex items-center gap-1">
-                                    JSON Schema <span className="material-symbols-outlined text-[14px]">data_object</span>
-                                </button>
-                            </div>
-                            <div className="flex flex-col gap-2 bg-[#111617] rounded-lg p-3 border border-[#293438]">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-[#9eb1b7] text-[16px]">public</span>
-                                        <span className="text-sm text-gray-300 font-mono">get_current_time</span>
-                                    </div>
-                                    <div className="relative inline-flex items-center cursor-pointer scale-75 origin-right">
-                                         <input type="checkbox" defaultChecked className="sr-only peer" />
-                                         <div className="w-9 h-5 bg-[#293438] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-[#9eb1b7] text-[16px]">travel_explore</span>
-                                        <span className="text-sm text-gray-300 font-mono">convert_time</span>
-                                    </div>
-                                    <div className="relative inline-flex items-center cursor-pointer scale-75 origin-right">
-                                         <input type="checkbox" defaultChecked className="sr-only peer" />
-                                         <div className="w-9 h-5 bg-[#293438] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="mt-auto pt-4 border-t border-border-dark flex items-center justify-between">
-                            <button className="text-[#9eb1b7] hover:text-white text-sm font-medium flex items-center gap-2 px-3 py-1.5 rounded hover:bg-[#293438] transition-colors">
-                                <span className="material-symbols-outlined text-[18px]">terminal</span> Logs
-                            </button>
-                            <div className="flex items-center gap-3">
-                                <button className="text-[#58656a] hover:text-primary transition-colors">
-                                    <span className="material-symbols-outlined">settings</span>
-                                </button>
-                                <label className="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" defaultChecked className="sr-only peer" />
-                                    <div className="w-11 h-6 bg-[#293438] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-                                </label>
-                            </div>
-                        </div>
+                         <div className="flex flex-col gap-2 mb-6">
+                             <p className="text-sm text-gray-500">Service is currently offline. Please start the local python agent.</p>
+                         </div>
                     </div>
 
                     {/* Card 3 - Add New */}
