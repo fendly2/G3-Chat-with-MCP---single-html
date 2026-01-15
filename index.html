@@ -127,10 +127,10 @@
     <div id="root"></div>
 
     <!-- 
-      CUSTOM MODULE LOADER 
-      This script manually fetches TSX files, compiles them with Babel in-memory,
-      and constructs a Blob URL Import Map. This bypasses browser MIME checks 
-      and allows "No-Build" execution.
+      CUSTOM MODULE LOADER v2
+      This script solves the "Invalid relative url" issue by pre-processing imports.
+      It converts relative paths (e.g., './components/Sidebar') into absolute Module IDs 
+      (e.g., 'components/Sidebar') mapped in the importmap.
     -->
     <script>
       (async function() {
@@ -140,14 +140,15 @@
           console.log(`[Loader] ${msg}`);
         };
 
-        const localModules = {
-          './types': './types.ts',
-          './components/Sidebar': './components/Sidebar.tsx',
-          './components/ChatView': './components/ChatView.tsx',
-          './components/ManagementView': './components/ManagementView.tsx',
-          './components/SettingsView': './components/SettingsView.tsx',
-          './App': './App.tsx',
-          './index': './index.tsx'
+        // 1. Define Module IDs -> File Paths
+        const modules = {
+          'types': './types.ts',
+          'components/Sidebar': './components/Sidebar.tsx',
+          'components/ChatView': './components/ChatView.tsx',
+          'components/ManagementView': './components/ManagementView.tsx',
+          'components/SettingsView': './components/SettingsView.tsx',
+          'App': './App.tsx',
+          'index': './index.tsx'
         };
 
         const importMap = {
@@ -157,35 +158,56 @@
           }
         };
 
+        // Helper to rewrite imports in source code
+        // e.g., import X from './components/Sidebar' -> import X from 'components/Sidebar'
+        const rewriteImports = (sourceCode) => {
+            return sourceCode.replace(/from\s+['"]([^'"]+)['"]/g, (match, path) => {
+                // Ignore libraries (react, react-dom)
+                if (!path.startsWith('.')) return match;
+                
+                // Simple heuristic resolvers for this project structure
+                if (path.includes('Sidebar')) return `from 'components/Sidebar'`;
+                if (path.includes('ChatView')) return `from 'components/ChatView'`;
+                if (path.includes('ManagementView')) return `from 'components/ManagementView'`;
+                if (path.includes('SettingsView')) return `from 'components/SettingsView'`;
+                if (path.includes('types')) return `from 'types'`;
+                if (path.includes('App')) return `from 'App'`;
+                
+                return match;
+            });
+        };
+
         try {
           updateStatus("Fetching source modules...");
           
-          // 1. Fetch and Compile all modules in parallel
-          const promises = Object.entries(localModules).map(async ([moduleName, url]) => {
-            // Add timestamp to prevent caching during dev
+          const promises = Object.entries(modules).map(async ([moduleId, url]) => {
+            // Fetch
             const response = await fetch(url + '?t=' + Date.now());
             if (!response.ok) throw new Error(`Failed to load ${url}`);
-            const tsxCode = await response.text();
+            let rawCode = await response.text();
 
-            // Transform TSX -> JS using Babel
-            const result = Babel.transform(tsxCode, {
+            // REWRITE IMPORTS BEFORE COMPILATION
+            // This is the magic step that fixes "Invalid relative url"
+            const processedCode = rewriteImports(rawCode);
+
+            // Compile
+            const result = Babel.transform(processedCode, {
               presets: ['react', 'typescript'],
               filename: url,
             });
 
-            // Create a Blob from the compiled JS
+            // Blob
             const blob = new Blob([result.code], { type: 'application/javascript' });
             const blobUrl = URL.createObjectURL(blob);
 
-            // Add to Import Map
-            importMap.imports[moduleName] = blobUrl;
+            // Register in Map
+            importMap.imports[moduleId] = blobUrl;
           });
 
           await Promise.all(promises);
 
           updateStatus("Injecting Import Map...");
           
-          // 2. Inject the dynamic Import Map
           const mapScript = document.createElement('script');
           mapScript.type = 'importmap';
           mapScript.textContent = JSON.stringify(importMap);
@@ -193,11 +215,9 @@
 
           updateStatus("Starting Application...");
 
-          // 3. Import the entry point (index.tsx)
-          // We use dynamic import() here so it uses the map we just injected
-          await import(importMap.imports['./index']);
+          // Import Entry Point (using the ID 'index', not the file path)
+          await import(importMap.imports['index']);
 
-          // 4. Fade out loader
           setTimeout(() => {
             const loader = document.getElementById('app-loader');
             if(loader) {
