@@ -1,6 +1,114 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  isStreaming?: boolean;
+}
 
 const ChatView: React.FC = () => {
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      role: 'assistant',
+      content: 'System initialized. I am connected to the internal inference gateway. How can I assist you today?'
+    }
+  ]);
+  const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleSend = async () => {
+    if (!inputValue.trim() || isLoading) return;
+
+    const userMsg = inputValue;
+    setInputValue('');
+    setIsLoading(true);
+
+    // Add user message
+    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [...messages, { role: 'user', content: userMsg }].map(m => ({
+            role: m.role,
+            content: m.content
+          }))
+        })
+      });
+
+      if (!response.ok) throw new Error('API Request failed');
+
+      // Add placeholder for assistant message
+      setMessages(prev => [...prev, { role: 'assistant', content: '', isStreaming: true }]);
+
+      // Handle Streaming
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let assistantResponse = '';
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.replace('data: ', '');
+              if (dataStr.trim() === '[DONE]') continue;
+              
+              try {
+                const data = JSON.parse(dataStr);
+                const delta = data.choices?.[0]?.delta?.content || '';
+                assistantResponse += delta;
+                
+                setMessages(prev => {
+                  const newMsgs = [...prev];
+                  const lastMsg = newMsgs[newMsgs.length - 1];
+                  if (lastMsg.role === 'assistant') {
+                    lastMsg.content = assistantResponse;
+                  }
+                  return newMsgs;
+                });
+              } catch (e) {
+                console.warn('Error parsing stream chunk', e);
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Error: Could not connect to the AI Gateway.' }]);
+    } finally {
+      setIsLoading(false);
+      setMessages(prev => {
+         const newMsgs = [...prev];
+         if (newMsgs.length > 0) {
+             newMsgs[newMsgs.length - 1].isStreaming = false;
+         }
+         return newMsgs;
+      });
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
   return (
     <div className="flex flex-col h-full relative">
       {/* Top Gradient Overlay */}
@@ -8,122 +116,83 @@ const ChatView: React.FC = () => {
       
       {/* Header */}
       <div className="absolute top-0 right-0 p-6 z-20">
-         <span className="px-3 py-1 rounded-full bg-white/5 text-xs font-medium text-gray-500 border border-white/5 backdrop-blur-sm">Today, 10:42 AM</span>
+         <span className="px-3 py-1 rounded-full bg-white/5 text-xs font-medium text-gray-500 border border-white/5 backdrop-blur-sm">
+            {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+         </span>
       </div>
 
       {/* Scrollable Area */}
       <div className="flex-1 overflow-y-auto w-full flex flex-col items-center pt-20 pb-40 px-4 md:px-8">
         <div className="w-full max-w-[840px] flex flex-col gap-8">
           
-          {/* User Message */}
-          <div className="flex justify-end w-full animate-fade-in-up">
-            <div className="flex flex-col items-end gap-1 max-w-[80%] md:max-w-[70%]">
-              <div className="bg-panel-dark border border-white/10 px-5 py-3.5 rounded-2xl rounded-tr-sm text-white shadow-sm">
-                <p className="leading-relaxed">Analyze the latest server logs for critical errors. I'm seeing some timeout issues on the payment gateway.</p>
-              </div>
-              <span className="text-[11px] text-gray-500 pr-1">You</span>
-            </div>
-          </div>
-
-          {/* Tool Usage Indicators */}
-          <div className="flex flex-col gap-2 w-full animate-fade-in-up delay-100">
-             {/* Previous Tool */}
-             <div className="flex items-center gap-3 pl-1 opacity-60">
-                <div className="w-8 h-8 flex items-center justify-center">
-                    <span className="material-symbols-outlined text-gray-500 text-[20px]">check_circle</span>
-                </div>
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/5 border border-white/5">
-                    <span className="material-symbols-outlined text-gray-400 text-[16px]">key</span>
-                    <span className="text-xs font-mono text-gray-400 font-medium">Authenticated as Admin</span>
-                </div>
-            </div>
-
-            {/* Active Tool */}
-            <div className="flex items-center gap-3 pl-1">
-                <div className="w-8 h-8 flex items-center justify-center">
-                    <span className="material-symbols-outlined text-emerald-400 animate-spin text-[20px]">progress_activity</span>
-                </div>
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/20">
-                    <span className="material-symbols-outlined text-emerald-400 text-[16px]">terminal</span>
-                    <span className="text-xs font-mono text-emerald-400 font-medium">Running LogReader MCP</span>
-                </div>
-            </div>
-          </div>
-
-          {/* AI Response */}
-          <div className="flex gap-4 w-full animate-fade-in-up delay-200">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0 mt-1 shadow-glow-sm">
-                <span className="material-symbols-outlined text-white text-[20px]">smart_toy</span>
-            </div>
-            <div className="flex flex-col gap-2 flex-1 min-w-0">
-                <div className="flex items-baseline gap-2">
-                    <span className="font-bold text-sm text-white">Enterprise Model</span>
-                    <span className="text-[11px] text-gray-500">via Internal Proxy</span>
-                </div>
-                
-                <div className="text-[15px] text-gray-200 space-y-4">
-                    <p>I've analyzed the logs from the last hour using the <code className="bg-white/10 px-1.5 py-0.5 rounded text-xs font-mono">LogReader</code> tool. I found <strong>3 critical errors</strong> related to the payment gateway service. The timeouts appear to be originating from the SQL database connection pool.</p>
-                    
-                    <div>
-                        <h3 className="text-sm font-bold text-white mb-2">Error Summary</h3>
-                        <div className="overflow-x-auto rounded-lg border border-white/10 bg-[#0d1117]">
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-white/5 border-b border-white/5 text-gray-400">
-                                    <tr>
-                                        <th className="px-4 py-2 font-mono text-xs uppercase tracking-wider">Timestamp</th>
-                                        <th className="px-4 py-2 font-mono text-xs uppercase tracking-wider">Level</th>
-                                        <th className="px-4 py-2 font-mono text-xs uppercase tracking-wider">Message</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-white/5 text-gray-300 font-mono text-xs">
-                                    <tr>
-                                        <td className="px-4 py-2 text-blue-300">10:41:05.232</td>
-                                        <td className="px-4 py-2 text-red-400 font-bold">CRIT</td>
-                                        <td className="px-4 py-2">ConnectionPoolTimeoutException: Timeout waiting for idle object</td>
-                                    </tr>
-                                    <tr>
-                                        <td className="px-4 py-2 text-blue-300">10:41:06.110</td>
-                                        <td className="px-4 py-2 text-red-400 font-bold">CRIT</td>
-                                        <td className="px-4 py-2">Transaction rollback failed: Connection closed</td>
-                                    </tr>
-                                    <tr>
-                                        <td className="px-4 py-2 text-blue-300">10:41:08.445</td>
-                                        <td className="px-4 py-2 text-red-400 font-bold">CRIT</td>
-                                        <td className="px-4 py-2">Gateway 504: Upstream service unreachable</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+          {messages.map((msg, index) => (
+            <div 
+                key={index} 
+                className={`flex w-full animate-fade-in-up ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+                {msg.role === 'user' ? (
+                     <div className="flex flex-col items-end gap-1 max-w-[80%] md:max-w-[70%]">
+                        <div className="bg-panel-dark border border-white/10 px-5 py-3.5 rounded-2xl rounded-tr-sm text-white shadow-sm">
+                            <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                        </div>
+                        <span className="text-[11px] text-gray-500 pr-1">You</span>
+                    </div>
+                ) : (
+                    <div className="flex gap-4 w-full max-w-[90%]">
+                        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0 mt-1 shadow-glow-sm">
+                            <span className="material-symbols-outlined text-white text-[20px]">smart_toy</span>
+                        </div>
+                        <div className="flex flex-col gap-2 flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2">
+                                <span className="font-bold text-sm text-white">Enterprise Model</span>
+                                <span className="text-[11px] text-gray-500">via Internal Proxy</span>
+                            </div>
+                            
+                            <div className="text-[15px] text-gray-200 leading-relaxed bg-transparent">
+                                {msg.content ? (
+                                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                                ) : (
+                                    <div className="flex items-center gap-2 text-gray-500 italic">
+                                        <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                                        Thinking...
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* Visual Footer for Assistant messages (optional aesthetic) */}
+                            {!msg.isStreaming && msg.content && (
+                                <div className="flex gap-2 mt-1">
+                                    <button className="text-gray-500 hover:text-white transition-colors" title="Copy">
+                                        <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                                    </button>
+                                    <button className="text-gray-500 hover:text-white transition-colors" title="Regenerate">
+                                        <span className="material-symbols-outlined text-[16px]">refresh</span>
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
-
-                    <p>This suggests the connection pool is exhausted. Would you like me to check the current active connections using the <code className="bg-white/10 px-1.5 py-0.5 rounded text-xs font-mono">SQLMonitor</code> MCP or draft an incident report?</p>
-                </div>
-
-                {/* Chips */}
-                <div className="flex flex-wrap gap-2 mt-2">
-                    <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-sm text-primary transition-colors">
-                        <span className="material-symbols-outlined text-[16px]">database</span>
-                        Check Active Connections
-                    </button>
-                    <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-sm text-primary transition-colors">
-                        <span className="material-symbols-outlined text-[16px]">edit_document</span>
-                        Draft Incident Report
-                    </button>
-                </div>
+                )}
             </div>
-          </div>
+          ))}
+          
+          <div ref={messagesEndRef} />
 
         </div>
       </div>
 
       {/* Bottom Input Area */}
-      <div className="absolute bottom-0 left-0 w-full p-6 flex flex-col items-center pointer-events-none bg-gradient-to-t from-background-dark via-background-dark to-transparent pt-20 z-30">
+      <div className="absolute bottom-0 left-0 w-full p-6 flex flex-col items-center bg-gradient-to-t from-background-dark via-background-dark to-transparent pt-20 z-30">
         <div className="w-full max-w-[840px] pointer-events-auto flex flex-col gap-3">
              {/* Input Box */}
              <div className="w-full bg-panel-dark border border-white/10 rounded-2xl shadow-2xl flex flex-col transition-all focus-within:ring-2 focus-within:ring-primary/50 focus-within:border-primary">
                 <textarea 
-                    className="w-full bg-transparent border-none text-white placeholder-gray-500 px-4 py-4 min-h-[56px] max-h-[200px] resize-none focus:ring-0 text-base font-medium" 
-                    placeholder="Ask for the current time in Tokyo..." 
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    disabled={isLoading}
+                    className="w-full bg-transparent border-none text-white placeholder-gray-500 px-4 py-4 min-h-[56px] max-h-[200px] resize-none focus:ring-0 text-base font-medium disabled:opacity-50" 
+                    placeholder="Message AI Nexus..." 
                     rows={1}
                 ></textarea>
                 <div className="flex items-center justify-between px-2 pb-2 pl-3">
@@ -131,16 +200,21 @@ const ChatView: React.FC = () => {
                         <button className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors" title="Attach File">
                             <span className="material-symbols-outlined text-[20px]">attach_file</span>
                         </button>
-                        <button className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors" title="Voice Input">
-                            <span className="material-symbols-outlined text-[20px]">mic</span>
-                        </button>
                         <div className="h-4 w-[1px] bg-white/10 mx-1"></div>
                         <button className="h-8 px-3 flex items-center gap-2 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors text-xs font-medium border border-transparent hover:border-white/5">
                             <span className="material-symbols-outlined text-[18px]">extension</span>
-                            Skills
+                            Tools
                         </button>
                     </div>
-                    <button className="w-9 h-9 flex items-center justify-center rounded-lg bg-primary hover:bg-primary/90 text-white shadow-glow transition-all active:scale-95">
+                    <button 
+                        onClick={handleSend}
+                        disabled={isLoading || !inputValue.trim()}
+                        className={`w-9 h-9 flex items-center justify-center rounded-lg shadow-glow transition-all ${
+                            isLoading || !inputValue.trim() 
+                            ? 'bg-gray-700 text-gray-500 cursor-not-allowed shadow-none' 
+                            : 'bg-primary hover:bg-primary/90 text-white active:scale-95'
+                        }`}
+                    >
                         <span className="material-symbols-outlined text-[20px]">arrow_upward</span>
                     </button>
                 </div>
@@ -153,17 +227,11 @@ const ChatView: React.FC = () => {
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
                     </span>
-                    <span className="text-[11px] font-medium text-gray-400 group-hover:text-gray-200 transition-colors">3 MCP Services Connected</span>
-                    
-                    <div className="hidden group-hover:flex ml-2 gap-1">
-                        <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300">TimeService</span>
-                        <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300">Outlook</span>
-                        <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300">SQLMonitor</span>
-                    </div>
+                    <span className="text-[11px] font-medium text-gray-400 group-hover:text-gray-200 transition-colors">Internal Network Connected</span>
                 </div>
             </div>
             <div className="text-center">
-                <p className="text-[10px] text-gray-600">Private Enterprise Mode. All data stays within the firewall.</p>
+                <p className="text-[10px] text-gray-600">Confidential. Do not input PII/SPI data.</p>
             </div>
         </div>
       </div>

@@ -77,23 +77,38 @@
       .toggle-checkbox:checked + .toggle-label {
           background-color: #1d9ec9;
       }
+
+      /* Loading Screen Styles */
+      #app-loader {
+        position: fixed;
+        inset: 0;
+        background-color: #16181d;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        transition: opacity 0.5s ease-out;
+      }
+      .loader-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(29, 158, 201, 0.3);
+        border-radius: 50%;
+        border-top-color: #1d9ec9;
+        animation: spin 1s ease-in-out infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
     </style>
 
-    <!-- Babel Standalone: Allows compiling React/TSX in browser without Node.js build steps -->
+    <!-- Babel Standalone -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <!-- Import Map: Resolves extensionless imports to their .tsx files -->
-    <script type="importmap">
+<script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "./App": "./App.tsx",
-    "./types": "./types.ts",
-    "./components/Sidebar": "./components/Sidebar.tsx",
-    "./components/ChatView": "./components/ChatView.tsx",
-    "./components/ManagementView": "./components/ManagementView.tsx",
-    "./components/SettingsView": "./components/SettingsView.tsx",
+    "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/"
   }
@@ -101,9 +116,103 @@
 </script>
 </head>
   <body class="bg-background-dark text-white font-display overflow-hidden selection:bg-primary/30">
+    
+    <!-- Initial Loading Screen -->
+    <div id="app-loader">
+      <div class="loader-spinner mb-4"></div>
+      <div class="text-[#9eb1b7] text-sm font-mono animate-pulse">Initializing Secure Runtime...</div>
+      <div id="loader-status" class="text-[#58656a] text-xs mt-2 font-mono">Loading modules</div>
+    </div>
+
     <div id="root"></div>
 
-    <!-- Load the Main Application -->
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./index.tsx"></script>
+    <!-- 
+      CUSTOM MODULE LOADER 
+      This script manually fetches TSX files, compiles them with Babel in-memory,
+      and constructs a Blob URL Import Map. This bypasses browser MIME checks 
+      and allows "No-Build" execution.
+    -->
+    <script>
+      (async function() {
+        const updateStatus = (msg) => {
+          const el = document.getElementById('loader-status');
+          if(el) el.innerText = msg;
+          console.log(`[Loader] ${msg}`);
+        };
+
+        const localModules = {
+          './types': './types.ts',
+          './components/Sidebar': './components/Sidebar.tsx',
+          './components/ChatView': './components/ChatView.tsx',
+          './components/ManagementView': './components/ManagementView.tsx',
+          './components/SettingsView': './components/SettingsView.tsx',
+          './App': './App.tsx',
+          './index': './index.tsx'
+        };
+
+        const importMap = {
+          imports: {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client"
+          }
+        };
+
+        try {
+          updateStatus("Fetching source modules...");
+          
+          // 1. Fetch and Compile all modules in parallel
+          const promises = Object.entries(localModules).map(async ([moduleName, url]) => {
+            // Add timestamp to prevent caching during dev
+            const response = await fetch(url + '?t=' + Date.now());
+            if (!response.ok) throw new Error(`Failed to load ${url}`);
+            const tsxCode = await response.text();
+
+            // Transform TSX -> JS using Babel
+            const result = Babel.transform(tsxCode, {
+              presets: ['react', 'typescript'],
+              filename: url,
+            });
+
+            // Create a Blob from the compiled JS
+            const blob = new Blob([result.code], { type: 'application/javascript' });
+            const blobUrl = URL.createObjectURL(blob);
+
+            // Add to Import Map
+            importMap.imports[moduleName] = blobUrl;
+          });
+
+          await Promise.all(promises);
+
+          updateStatus("Injecting Import Map...");
+          
+          // 2. Inject the dynamic Import Map
+          const mapScript = document.createElement('script');
+          mapScript.type = 'importmap';
+          mapScript.textContent = JSON.stringify(importMap);
+          document.head.appendChild(mapScript);
+
+          updateStatus("Starting Application...");
+
+          // 3. Import the entry point (index.tsx)
+          // We use dynamic import() here so it uses the map we just injected
+          await import(importMap.imports['./index']);
+
+          // 4. Fade out loader
+          setTimeout(() => {
+            const loader = document.getElementById('app-loader');
+            if(loader) {
+              loader.style.opacity = '0';
+              setTimeout(() => loader.remove(), 500);
+            }
+          }, 200);
+
+        } catch (err) {
+          console.error(err);
+          updateStatus("Error: " + err.message);
+          const statusEl = document.getElementById('loader-status');
+          if(statusEl) statusEl.style.color = '#DB3E4E';
+        }
+      })();
+    </script>
   </body>
 </html>
