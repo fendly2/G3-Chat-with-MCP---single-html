@@ -105,6 +105,7 @@
 
     <!-- Babel Standalone -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- REMOVED STATIC IMPORT MAP TO AVOID CONFLICT -->
 <script type="importmap">
 {
   "imports": {
@@ -127,10 +128,10 @@
     <div id="root"></div>
 
     <!-- 
-      CUSTOM MODULE LOADER v2
-      This script solves the "Invalid relative url" issue by pre-processing imports.
-      It converts relative paths (e.g., './components/Sidebar') into absolute Module IDs 
-      (e.g., 'components/Sidebar') mapped in the importmap.
+      CUSTOM MODULE LOADER v3 (Fixes Import Map Conflicts)
+      1. Defines exact mappings for React 18.
+      2. Rewrites relative imports to match mapped keys.
+      3. Injects ONE single importmap at runtime.
     -->
     <script>
       (async function() {
@@ -151,21 +152,23 @@
           'index': './index.tsx'
         };
 
+        // Standard React 18 imports
         const importMap = {
           imports: {
             "react": "https://esm.sh/react@18.2.0",
-            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client"
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            // Shim for direct react-dom import if needed
+            "react-dom": "https://esm.sh/react-dom@18.2.0" 
           }
         };
 
         // Helper to rewrite imports in source code
-        // e.g., import X from './components/Sidebar' -> import X from 'components/Sidebar'
         const rewriteImports = (sourceCode) => {
             return sourceCode.replace(/from\s+['"]([^'"]+)['"]/g, (match, path) => {
                 // Ignore libraries (react, react-dom)
                 if (!path.startsWith('.')) return match;
                 
-                // Simple heuristic resolvers for this project structure
+                // Heuristic mapping: ./components/Sidebar -> components/Sidebar
                 if (path.includes('Sidebar')) return `from 'components/Sidebar'`;
                 if (path.includes('ChatView')) return `from 'components/ChatView'`;
                 if (path.includes('ManagementView')) return `from 'components/ManagementView'`;
@@ -186,8 +189,7 @@
             if (!response.ok) throw new Error(`Failed to load ${url}`);
             let rawCode = await response.text();
 
-            // REWRITE IMPORTS BEFORE COMPILATION
-            // This is the magic step that fixes "Invalid relative url"
+            // REWRITE IMPORTS
             const processedCode = rewriteImports(rawCode);
 
             // Compile
@@ -215,7 +217,10 @@
 
           updateStatus("Starting Application...");
 
-          // Import Entry Point (using the ID 'index', not the file path)
+          // Wait a tick for the map to settle
+          await new Promise(r => setTimeout(r, 10));
+
+          // Import Entry Point
           await import(importMap.imports['index']);
 
           setTimeout(() => {
@@ -227,10 +232,17 @@
           }, 200);
 
         } catch (err) {
-          console.error(err);
+          console.error("Loader Error:", err);
           updateStatus("Error: " + err.message);
           const statusEl = document.getElementById('loader-status');
           if(statusEl) statusEl.style.color = '#DB3E4E';
+          
+          // Debugging help
+          const debugInfo = document.createElement('pre');
+          debugInfo.style.color = 'red';
+          debugInfo.style.padding = '20px';
+          debugInfo.textContent = err.stack || err.message;
+          document.body.appendChild(debugInfo);
         }
       })();
     </script>
