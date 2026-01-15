@@ -95,9 +95,11 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) => {
         </button>
 
         <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#1c2426] transition-colors cursor-pointer border border-transparent hover:border-border-dark">
-            <div className="size-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white border border-white/10 shadow-lg">
-                JD
-            </div>
+            <img 
+                src="https://ui-avatars.com/api/?name=John+Doe&background=1d9ec9&color=fff&size=128" 
+                alt="JD" 
+                className="size-8 rounded-full border border-white/10 shadow-sm"
+            />
             <div className="flex flex-col">
                 <span className="text-sm font-medium text-white">John Doe</span>
                 <span className="text-[10px] text-[#9eb1b7]">CFI Developer</span>

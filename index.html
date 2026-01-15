@@ -127,10 +127,10 @@
     <div id="root"></div>
 
     <!-- 
-      CUSTOM MODULE LOADER v4
-      - Removes conflicting static import maps
-      - Standardizes on React 18.2.0
-      - Handles virtual path rewriting for Blob URLs
+      CUSTOM MODULE LOADER v5.3 (FIXED)
+      - Added File Protocol Check
+      - Enhanced Error Reporting
+      - Removed Static Import Map (Verified)
     -->
     <script>
       (async function() {
@@ -139,6 +139,17 @@
           if(el) el.innerText = msg;
           console.log(`[Loader] ${msg}`);
         };
+
+        if (window.location.protocol === 'file:') {
+             const errorMsg = "CRITICAL: Cannot run application via file:// protocol.";
+             updateStatus(errorMsg);
+             const debugDiv = document.createElement('div');
+             debugDiv.style.position = 'fixed'; debugDiv.style.bottom = '0'; debugDiv.style.left = '0'; debugDiv.style.right = '0';
+             debugDiv.style.padding = '20px'; debugDiv.style.background = 'rgba(220, 38, 38, 0.9)'; debugDiv.style.color = 'white'; debugDiv.style.fontFamily = 'monospace'; debugDiv.style.zIndex = '10000';
+             debugDiv.innerHTML = `<strong>Error:</strong> The application must be served via a web server (http://localhost:8000).<br/>Please run <code>python proxy_server.py</code> and access the URL provided.`;
+             document.body.appendChild(debugDiv);
+             return;
+        }
 
         // 1. Define Module IDs -> File Paths
         const modules = {
@@ -160,21 +171,15 @@
           }
         };
 
-        // Helper to rewrite imports in source code
-        // e.g. "import Sidebar from './components/Sidebar'" -> "import Sidebar from 'components/Sidebar'"
         const rewriteImports = (sourceCode) => {
             return sourceCode.replace(/from\s+['"]([^'"]+)['"]/g, (match, path) => {
-                // Ignore external libraries
                 if (!path.startsWith('.')) return match;
-                
-                // Resolver logic
                 if (path.includes('Sidebar')) return `from 'components/Sidebar'`;
                 if (path.includes('ChatView')) return `from 'components/ChatView'`;
                 if (path.includes('ManagementView')) return `from 'components/ManagementView'`;
                 if (path.includes('SettingsView')) return `from 'components/SettingsView'`;
                 if (path.includes('types')) return `from 'types'`;
                 if (path.includes('App')) return `from 'App'`;
-                
                 return match;
             });
         };
@@ -183,26 +188,31 @@
           updateStatus("Fetching source modules...");
           
           const promises = Object.entries(modules).map(async ([moduleId, url]) => {
-            // Fetch source
-            const response = await fetch(url + '?t=' + Date.now());
-            if (!response.ok) throw new Error(`Failed to load ${url}`);
-            let rawCode = await response.text();
+            try {
+                // Fetch source without cache buster to avoid potential server strictness
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                let rawCode = await response.text();
 
-            // REWRITE IMPORTS (Crucial step for Blob URL environments)
-            const processedCode = rewriteImports(rawCode);
+                // REWRITE IMPORTS
+                const processedCode = rewriteImports(rawCode);
 
-            // Compile with Babel
-            const result = Babel.transform(processedCode, {
-              presets: ['react', 'typescript'],
-              filename: url,
-            });
+                // Compile with Babel
+                const result = Babel.transform(processedCode, {
+                  presets: ['react', 'typescript'],
+                  filename: url,
+                });
 
-            // Create Blob URL
-            const blob = new Blob([result.code], { type: 'application/javascript' });
-            const blobUrl = URL.createObjectURL(blob);
+                // Create Blob URL
+                const blob = new Blob([result.code], { type: 'application/javascript' });
+                const blobUrl = URL.createObjectURL(blob);
 
-            // Register in Import Map
-            importMap.imports[moduleId] = blobUrl;
+                // Register in Import Map
+                importMap.imports[moduleId] = blobUrl;
+            } catch (fileErr) {
+                console.error(fileErr);
+                throw new Error(`Failed to load ${url}: ${fileErr.message}`);
+            }
           });
 
           await Promise.all(promises);
@@ -236,6 +246,19 @@
           updateStatus("Error: " + err.message);
           const statusEl = document.getElementById('loader-status');
           if(statusEl) statusEl.style.color = '#DB3E4E';
+          
+          const debugDiv = document.createElement('div');
+          debugDiv.style.position = 'fixed';
+          debugDiv.style.bottom = '0';
+          debugDiv.style.left = '0';
+          debugDiv.style.right = '0';
+          debugDiv.style.padding = '20px';
+          debugDiv.style.background = 'rgba(220, 38, 38, 0.9)';
+          debugDiv.style.color = 'white';
+          debugDiv.style.fontFamily = 'monospace';
+          debugDiv.style.zIndex = '10000';
+          debugDiv.innerHTML = `<strong>Loader Error:</strong> ${err.message}<br/><small>Check console for details.</small>`;
+          document.body.appendChild(debugDiv);
         }
       })();
     </script>
