@@ -1,0 +1,195 @@
+import os
+import requests
+import threading
+import time
+import mimetypes
+import json
+from datetime import datetime
+from flask import Flask, request, jsonify, send_from_directory, Response
+
+# -------------------------------------------------------------------------
+# 1. Configuration & Setup
+# -------------------------------------------------------------------------
+
+app = Flask(__name__)
+
+# Configuration from Environment Variables
+# If AI_API_BASE_URL is set to 'MOCK', the server will respond with dummy data locally.
+AI_API_BASE_URL = os.environ.get('AI_API_BASE_URL', 'http://internal-ai-gateway.corp/v1')
+AI_API_KEY = os.environ.get('AI_API_KEY', '')
+AI_MODEL_NAME = os.environ.get('AI_MODEL_NAME', 'gpt-4-turbo-internal')
+
+# -------------------------------------------------------------------------
+# 2. Embedded MCP Service: Time Service
+#    (Simulates mcp-server-time running internally)
+# -------------------------------------------------------------------------
+
+class InternalTimeService:
+    def __init__(self):
+        self.running = False
+        self.service_info = {
+            "name": "TimeService",
+            "status": "STOPPED",
+            "uptime_start": 0,
+            "tools": ["get_current_time", "convert_time"]
+        }
+
+    def start(self):
+        self.running = True
+        self.service_info["status"] = "RUNNING"
+        self.service_info["uptime_start"] = time.time()
+        print("[System] Embedded Time MCP Service started.")
+
+    def stop(self):
+        self.running = False
+        self.service_info["status"] = "STOPPED"
+
+    def get_status(self):
+        uptime = 0
+        if self.running:
+            uptime = time.time() - self.service_info["uptime_start"]
+        return {
+            **self.service_info,
+            "uptime_seconds": int(uptime)
+        }
+
+# Initialize and start the embedded service
+time_service = InternalTimeService()
+# Start it in a background thread (mocking the separate process behavior)
+threading.Thread(target=time_service.start, daemon=True).start()
+
+
+# -------------------------------------------------------------------------
+# 3. Static File Serving (No-Build Mode)
+# -------------------------------------------------------------------------
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    """
+    Serve source files directly to the browser. 
+    Babel Standalone in index.html will compile them on the fly.
+    """
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    if path == "":
+        return send_from_directory(root_dir, 'index.html')
+
+    # Security check: prevent traversing up
+    safe_path = os.path.normpath(os.path.join(root_dir, path))
+    if not safe_path.startswith(root_dir):
+        return "Access denied", 403
+
+    if os.path.exists(safe_path):
+        # Explicitly set MIME type for TSX/TS files to ensure Babel processes them
+        mimetype = None
+        if safe_path.endswith('.tsx') or safe_path.endswith('.ts'):
+            mimetype = 'text/plain'
+        
+        return send_from_directory(root_dir, path, mimetype=mimetype)
+    
+    # Fallback for SPA routing (if refreshing on a sub-route)
+    if os.path.exists(os.path.join(root_dir, 'index.html')):
+        return send_from_directory(root_dir, 'index.html')
+    
+    return "File not found", 404
+
+
+# -------------------------------------------------------------------------
+# 4. API Endpoints
+# -------------------------------------------------------------------------
+
+@app.route('/api/chat', methods=['POST'])
+def proxy_chat():
+    """
+    Proxy endpoint to forward chat requests to the internal LLM gateway.
+    Includes a 'MOCK' mode for local development without VPN/Intranet.
+    """
+    try:
+        frontend_data = request.json
+        if not frontend_data:
+            return jsonify({"error": "No data provided"}), 400
+
+        # --- MOCK MODE FOR LOCAL DEBUGGING ---
+        if AI_API_BASE_URL == 'MOCK':
+            print(f"[Proxy] MOCK MODE ACTIVE. Simulating response.")
+            def mock_stream():
+                mock_text = "Local Debug Mode: I received your message. Since 'AI_API_BASE_URL' is set to 'MOCK', I am simulating a streaming response without hitting the network.\n\nEverything appears to be working correctly!"
+                
+                # Split text to simulate chunks
+                words = mock_text.split(' ')
+                for word in words:
+                    time.sleep(0.05) # Simulate typing delay
+                    chunk = {
+                        "id": "chatcmpl-mock",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": AI_MODEL_NAME,
+                        "choices": [{"index": 0, "delta": {"content": word + " "}, "finish_reason": None}]
+                    }
+                    yield f"data: {json.dumps(chunk)}\n\n".encode('utf-8')
+                
+                yield b"data: [DONE]\n\n"
+
+            return Response(mock_stream(), content_type="text/event-stream")
+        # -------------------------------------
+
+        payload = {
+            "model": AI_MODEL_NAME,
+            "messages": frontend_data.get("messages", []),
+            "temperature": frontend_data.get("temperature", 0.7),
+            "stream": True 
+        }
+
+        headers = {
+            "Authorization": f"Bearer {AI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        print(f"[Proxy] Forwarding to: {AI_API_BASE_URL}/chat/completions")
+        
+        try:
+            resp = requests.post(
+                f"{AI_API_BASE_URL}/chat/completions",
+                json=payload,
+                headers=headers,
+                stream=True,
+                timeout=60
+            )
+            
+            if resp.status_code != 200:
+                return jsonify({"error": f"Upstream error: {resp.status_code}", "details": resp.text}), resp.status_code
+
+            def generate():
+                for chunk in resp.iter_content(chunk_size=1024):
+                    if chunk:
+                        yield chunk
+
+            return Response(generate(), content_type=resp.headers.get('Content-Type'))
+            
+        except requests.exceptions.ConnectionError:
+            # Fallback if connection fails (e.g. VPN disconnected)
+            print(f"[Proxy] Connection Error to {AI_API_BASE_URL}. Returning error message.")
+            return jsonify({"error": "Upstream Unreachable", "message": "Could not connect to internal AI gateway. Please check your VPN or set AI_API_BASE_URL to MOCK."}), 503
+
+    except Exception as e:
+        print(f"Proxy Error: {str(e)}")
+        return jsonify({"error": "Internal Proxy Error", "details": str(e)}), 500
+
+@app.route('/api/mcp/status', methods=['GET'])
+def mcp_status():
+    """Endpoint for frontend to check the status of embedded services"""
+    return jsonify({
+        "services": [
+            time_service.get_status()
+        ]
+    })
+
+if __name__ == '__main__':
+    print("="*60)
+    print(f"CFI AI Center Proxy Server (No-Build Mode)")
+    print(f"Serving raw TSX files from: {os.path.dirname(os.path.abspath(__file__))}")
+    print(f"Internal TimeService: ACTIVE (Embedded)")
+    print(f"API Mode: {'MOCK (Local Debug)' if AI_API_BASE_URL == 'MOCK' else 'LIVE PROXY (' + AI_API_BASE_URL + ')'}")
+    print("="*60)
+    app.run(host='0.0.0.0', port=8000, debug=True)

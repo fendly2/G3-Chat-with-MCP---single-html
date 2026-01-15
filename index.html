@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CFI AI Center - Internal</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#1d9ec9",
+              "primary-dark": "#157a9c",
+              "primary-hover": "#1587ad",
+              "background-light": "#f9fafb",
+              "background-dark": "#16181d",
+              "surface-dark": "#1c2426",
+              "surface-darker": "#111617",
+              "panel-dark": "#1e2329",
+              "border-dark": "#293438",
+              "text-secondary": "#9eb1b7",
+              "success": "#6DBE31",
+              "error": "#DB3E4E",
+            },
+            fontFamily: {
+              "display": ["Manrope", "sans-serif"],
+              "mono": ["JetBrains Mono", "monospace"],
+            },
+            boxShadow: {
+                "glow": "0 0 15px rgba(29, 158, 201, 0.15)",
+                "glow-sm": "0 0 8px rgba(29, 158, 201, 0.3)",
+            },
+            animation: {
+                "fade-in-up": "fadeInUp 0.5s ease-out forwards",
+            },
+            keyframes: {
+                fadeInUp: {
+                    "0%": { opacity: "0", transform: "translateY(10px)" },
+                    "100%": { opacity: "1", transform: "translateY(0)" },
+                }
+            }
+          },
+        },
+      }
+    </script>
+    <style>
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+          background: #111617; 
+      }
+      ::-webkit-scrollbar-thumb {
+          background: #293438; 
+          border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+          background: #3d4d52; 
+      }
+      
+      .toggle-checkbox:checked {
+          right: 0;
+          border-color: #1d9ec9;
+      }
+      .toggle-checkbox:checked + .toggle-label {
+          background-color: #1d9ec9;
+      }
+    </style>
+
+    <!-- Babel Standalone: Allows compiling React/TSX in browser without Node.js build steps -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Import Map: Resolves extensionless imports to their .tsx files -->
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "./App": "./App.tsx",
+    "./types": "./types.ts",
+    "./components/Sidebar": "./components/Sidebar.tsx",
+    "./components/ChatView": "./components/ChatView.tsx",
+    "./components/ManagementView": "./components/ManagementView.tsx",
+    "./components/SettingsView": "./components/SettingsView.tsx",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/"
+  }
+}
+</script>
+</head>
+  <body class="bg-background-dark text-white font-display overflow-hidden selection:bg-primary/30">
+    <div id="root"></div>
+
+    <!-- Load the Main Application -->
+    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./index.tsx"></script>
+  </body>
+</html>
